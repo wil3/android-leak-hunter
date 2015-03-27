@@ -1,5 +1,11 @@
 package edu.bu.android.model;
 
+
+/**
+ * The type and name for a class field
+ * @author wil
+ *
+ */
 public class ClassField {
 
 	private Class clazz;

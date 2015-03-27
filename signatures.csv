@@ -1,0 +1,6 @@
+{"outgoing":true, "signature":"<flexjson: java.lang.String serialize(java.lang.Object)>", "position": 0}
+#This one is specified by generic type in construtor
+#{"outgoing":false, "signature":"<flexjson: java.lang.String deserialize(java.lang.String)>", "position": 0}
+
+{"outgoing":false, "signature": "<com.google.gson.Gson: java.lang.Object fromJson(java.lang.String,java.lang.Class)>", "position":1}
+{"outgoing":true, "signature":"<com.google.gson.Gson: java.lang.String toJson(java.lang.Object)>", "position": 0}

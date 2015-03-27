@@ -1,5 +1,10 @@
 package edu.bu.android.model;
 
+/**
+ * The extraction that is being looked for.
+ * @author wil
+ *
+ */
 public class ObjectExtractionQuery {
 
 	/**
@@ -12,6 +17,9 @@ public class ObjectExtractionQuery {
 	 */
 	private String signature;
 
+	
+	private boolean outgoing;
+	
 	public int getPosition() {
 		return position;
 	}
@@ -33,6 +41,14 @@ public class ObjectExtractionQuery {
 	 */
 	public void setSignature(String signature) {
 		this.signature = signature;
+	}
+
+	public boolean isOutgoing() {
+		return outgoing;
+	}
+
+	public void setOutgoing(boolean outgoing) {
+		this.outgoing = outgoing;
 	}
 	
 }
