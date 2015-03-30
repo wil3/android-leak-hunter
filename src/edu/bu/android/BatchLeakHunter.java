@@ -53,11 +53,15 @@ public class BatchLeakHunter {
 	final static Logger logger = LoggerFactory.getLogger(BatchLeakHunter.class);
 	
 	private File apkSourceDir;
+	private File foundDir;
+	private File lostDir;
 	private String androidJars;
 	private String signaturePath;
 	Hashtable<String,ObjectExtractionQuery> signatures;
-	public BatchLeakHunter(File apkSourceDir, String androidJars, String signaturePath){
+	public BatchLeakHunter(File apkSourceDir, File processedDir, File lostDir, String androidJars, String signaturePath){
 		this.apkSourceDir = apkSourceDir;
+		this.foundDir = processedDir;
+		this.lostDir = lostDir;
 		this.androidJars = androidJars;
 		this.signaturePath = signaturePath;
 		setup();
@@ -92,12 +96,25 @@ public class BatchLeakHunter {
 			
 			String apkPath = files[i].getAbsolutePath();
 			logger.info("Processing " + apkPath);
+			String apkName = files[i].getName();
 			List<String> processDirs = new ArrayList<String>();
 			processDirs.add(apkPath);
 			Options.v().set_process_dir(processDirs);
 
-			LeakHunter hunter = new LeakHunter(signatures);
-			hunter.process();
+			LeakHunter hunter = new LeakHunter(apkName, signatures);
+			int numProcessed = hunter.process();
+			
+			try {
+				
+				if (numProcessed > 0) {
+					FileUtils.moveFileToDirectory(files[i], foundDir, false);
+				} else {
+					FileUtils.moveFileToDirectory(files[i], lostDir, false);
+
+				}
+			} catch (IOException e) {
+				logger.error(e.getMessage());
+			}
 		}
 	}
 	
@@ -131,11 +148,16 @@ public class BatchLeakHunter {
 	public static void main(String[] args) {
 		String apkSourceDirPath = args[0];
 		File apkSourceDir = new File(apkSourceDirPath);
-		String androidJars = args[1];
-		String signaturePath = args[2];
+		
+		String proccessedDirPath = args[1];
+		File foundDir = new File(proccessedDirPath);
+		File lostDir = new File(args[2]);
+		
+		String androidJars = args[3];
+		String signaturePath = args[4];
 
 		
-		BatchLeakHunter instra = new BatchLeakHunter(apkSourceDir, androidJars, signaturePath);
+		BatchLeakHunter instra = new BatchLeakHunter(apkSourceDir, foundDir, lostDir, androidJars, signaturePath);
 		//instra.run(args);
 		//instra.locateMethodCalls();
 		//instra.getClasses();

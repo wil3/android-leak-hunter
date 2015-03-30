@@ -12,6 +12,7 @@ public class LeakedData {
 	private boolean outgoing;
 	private String type;
 	private String name;
+	private String apk;
 
 	public String getClazz() {
 		return clazz;
@@ -45,9 +46,21 @@ public class LeakedData {
 	}
 	
 	public void makeId(){
-		String s = clazz + outgoing + type + name;
+		String s = apk + clazz + outgoing + type + name;
 		String sha = DigestUtils.sha256Hex(s);
 		this.id=sha;
+	}
+	@Override
+	public String toString(){
+		String s = "ID: " + id + " APK: " + apk + " Class: " + clazz + " Outgoing? " + outgoing + " Type: " + type + " Name: " + name;
+
+		return s;
+	}
+	public String getApk() {
+		return apk;
+	}
+	public void setApk(String apk) {
+		this.apk = apk;
 	}
 	
 }

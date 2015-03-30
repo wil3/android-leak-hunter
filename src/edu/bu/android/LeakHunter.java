@@ -14,11 +14,13 @@ import org.slf4j.LoggerFactory;
 import soot.Body;
 import soot.BodyTransformer;
 import soot.G;
+import soot.Hierarchy;
 import soot.PackManager;
 import soot.PatchingChain;
 import soot.Scene;
 import soot.SootClass;
 import soot.SootField;
+import soot.SootMethod;
 import soot.Transform;
 import soot.Type;
 import soot.Unit;
@@ -27,9 +29,12 @@ import soot.ValueBox;
 import soot.jimple.AbstractStmtSwitch;
 import soot.jimple.AssignStmt;
 import soot.jimple.ClassConstant;
+import soot.jimple.FieldRef;
 import soot.jimple.InvokeStmt;
 import soot.jimple.Stmt;
+import soot.jimple.StringConstant;
 import soot.jimple.internal.AbstractInvokeExpr;
+import soot.jimple.internal.JInterfaceInvokeExpr;
 import soot.jimple.internal.JimpleLocal;
 import soot.util.Chain;
 
@@ -52,9 +57,11 @@ public class LeakHunter {
 	private final Hashtable<String, ObjectExtractionQuery> extractionPoints;
 	List<ObjectExtractionResult> extractedObjects = new ArrayList<ObjectExtractionResult>();
 	MongoClient mongoClient;
+	private String apkName;
 	
-	public LeakHunter(Hashtable<String, ObjectExtractionQuery> extractionPoints){ 
+	public LeakHunter(String apkName, Hashtable<String, ObjectExtractionQuery> extractionPoints){ 
 		this.extractionPoints = extractionPoints;
+		this.apkName = apkName;
 	}
 
 	private MongoClient getDatabaseClient(){
@@ -74,26 +81,31 @@ public class LeakHunter {
 			client.close();
 		}
 	}
-	public void process(){
-	
+	public int process(){
+		int numProccessed = 0;
 		try {
-		Scene.v().loadNecessaryClasses();
-		locateMethodCalls();
-		for (ObjectExtractionResult r : extractedObjects){
-			extractFieldsFromClassandStore(r);
+			Scene.v().loadNecessaryClasses();
+			locateMethodCalls();
+			for (ObjectExtractionResult r : extractedObjects){
+				numProccessed += extractFieldsFromClassandStore(r);
+			}
+		} catch (RuntimeException e){
+		logger.error(e.getMessage());
+	} finally {
+			closeDatabase();
+			Scene.v().releaseActiveHierarchy();
+			Scene.v().releaseCallGraph();
+			Scene.v().releaseReachableMethods();
+			Scene.v().releasePointsToAnalysis();
+			Scene.v().releaseSideEffectAnalysis();
+			G.reset();
 		}
-		} finally {
-		closeDatabase();
-		Scene.v().releaseActiveHierarchy();
-		Scene.v().releaseCallGraph();
-		Scene.v().releaseReachableMethods();
-		Scene.v().releasePointsToAnalysis();
-		Scene.v().releaseSideEffectAnalysis();
-		G.reset();
-		}
+		return numProccessed;
 	}
 
-	private void extractFieldsFromClassandStore(ObjectExtractionResult r){
+	private int extractFieldsFromClassandStore(ObjectExtractionResult r){
+		int numProccessed = 0;
+
 		DB db = getDatabaseClient().getDB(MONGO_DB);
 		DBCollection dbCollection = db.getCollection(MONGO_COLL);
 		JacksonDBCollection<LeakedData, String> coll = JacksonDBCollection.wrap(dbCollection, LeakedData.class,
@@ -113,15 +125,30 @@ public class LeakHunter {
 			data.setType(classfield.getType());
 			data.setName(classfield.getName());
 			data.setOutgoing(r.isOutgoing());
+			data.setApk(apkName);
 			data.makeId();
-			try {
-				coll.insert(data);
-			} catch (MongoException e){
-				logger.warn(e.getMessage());
-			}
+			
+			write(data);
+			numProccessed++;
+
 		}
+		return numProccessed;
 	}
 
+	
+	private void write(LeakedData data){
+		try {
+
+			DB db = getDatabaseClient().getDB(MONGO_DB);
+			DBCollection dbCollection = db.getCollection(MONGO_COLL);
+			JacksonDBCollection<LeakedData, String> coll = JacksonDBCollection.wrap(dbCollection, LeakedData.class,
+			        String.class);
+			
+			coll.insert(data);
+		} catch (MongoException e){
+			logger.warn("Duplicate key " + data.toString());
+		}
+	}
 
 	
 	/**
@@ -150,15 +177,59 @@ public class LeakHunter {
 		return extractedFields;
 	}
 	
-	
-	private void analyzeUnit(Unit u){
-		//important to use snapshotIterator here
-			
+	private void processMap(String localName, boolean outgoing,List<PreloadValue> preloaded ){
+		for (PreloadValue p : preloaded){
+			if (p.localName.equals(localName)){
+				p.data.setOutgoing(outgoing);
+				p.data.makeId();
+				logger.info("From map: " + p.data.getName());
+				write(p.data);
+			}
+		}
+	}
+	class PreloadValue {
+		public String localName;
+		public LeakedData data;
+	}
+	private void analyzeUnit(Unit u, final Body b, final List<PreloadValue> preloaded){
+		
 			u.apply(new AbstractStmtSwitch() {
 				
+				/**
+				 * If a map is used the values would have been set previously so track them
+				 */
 				 public void caseInvokeStmt(InvokeStmt stmt)
 				    {
-					 //logger.info(stmt.toString());
+
+					 Value v = stmt.getInvokeExprBox().getValue();
+					 if (v instanceof JInterfaceInvokeExpr){
+						 JInterfaceInvokeExpr jv = (JInterfaceInvokeExpr) v;
+
+						 if (jv.getMethodRef().getSignature().equals("<java.util.Map: java.lang.Object put(java.lang.Object,java.lang.Object)>")){
+
+							 if (jv.getBaseBox().getValue() instanceof JimpleLocal){
+								 JimpleLocal local = (JimpleLocal)jv.getBaseBox().getValue();
+								 String localName = local.getName();
+								 for (int i=0; i<jv.getArgCount(); i++){
+									 ValueBox ab = jv.getArgBox(i);
+									 if (ab.getValue() instanceof StringConstant){
+										 String key = ((StringConstant)ab.getValue()).value;
+										 LeakedData ld = new LeakedData();
+										 ld.setApk(apkName);
+										 ld.setClazz("java.util.Map");
+										 ld.setName(key);
+										 ld.setType("java.lang.String");
+
+										 PreloadValue p = new PreloadValue();
+										 p.localName = localName;
+										 p.data = ld;
+										 preloaded.add(p);
+									 }
+								 }
+							 }
+						 }
+					 }
+					
 				    }
 	
 				//what if result is passed to method?
@@ -171,10 +242,11 @@ public class LeakHunter {
 					 
 					 Value v = stmt.getRightOpBox().getValue();
 					 if (v instanceof AbstractInvokeExpr){
-						 
 						 AbstractInvokeExpr aie = (AbstractInvokeExpr)v;
 						 String sig = aie.getMethodRef().getSignature();
 						 if (extractionPoints.containsKey(sig)){
+							 logger.debug("Class=" + b.getMethod().getDeclaringClass().getName() + " method="+ b.getMethod().getName());
+
 							 ObjectExtractionQuery oe = extractionPoints.get(sig);
 							 List<ValueBox> boxes = v.getUseBoxes(); //get from here
 							 
@@ -184,9 +256,15 @@ public class LeakHunter {
 								Value boxVal = vb.getValue();
 								String c=null;
 								if (boxVal instanceof JimpleLocal){
+									String localName = ((JimpleLocal) boxVal).getName();
 									 Type argType = vb.getValue().getType(); //Is this the class or a reference?
-									c = argType.toString();
+									 c = argType.toString();
+									 if (c.equals("java.util.Map")){
+										 processMap(localName, oe.isOutgoing(), preloaded); //This is the sink
+										 preloaded.clear();
+									 }
 									 logger.info(sig + "\t" + c);
+								
 
 								} else if (boxVal instanceof ClassConstant){
 									
@@ -212,8 +290,7 @@ public class LeakHunter {
 			    }
 				public void defaultCase(Object o){
 					Stmt s = (Stmt)o;
-					if (s.toString().contains("toJson") ||
-							s.toString().contains("fromJson")){
+					if (s.toString().contains("<java.util.Map: java.lang.Object put(java.lang.Object,java.lang.Object)>") ){
 					//logger.info(s.toString());
 					}
 				}
@@ -249,10 +326,13 @@ public class LeakHunter {
 			@Override
 			protected void internalTransform(final Body b, String phaseName, @SuppressWarnings("rawtypes") Map options) {
 
+					SootMethod method = b.getMethod();
+					List<PreloadValue> preloaded = new ArrayList<PreloadValue>();
+					//logger.debug("Class=" + method.getDeclaringClass().getName() + " method="+ method.getName());
 					final PatchingChain<Unit> units = b.getUnits();
 					for(Iterator<Unit> iter = units.snapshotIterator(); iter.hasNext();) {
 						final Unit u = iter.next();
-						analyzeUnit(u);
+						analyzeUnit(u,b,preloaded);
 
 					}
 				}
