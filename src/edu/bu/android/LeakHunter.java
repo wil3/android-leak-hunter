@@ -55,8 +55,8 @@ public class LeakHunter {
 	private final static String MONGO_DB = "apk";
 	private final static String MONGO_COLL = "leakages";
 	private final Hashtable<String, ObjectExtractionQuery> extractionPoints;
-	List<ObjectExtractionResult> extractedObjects = new ArrayList<ObjectExtractionResult>();
-	MongoClient mongoClient;
+	private List<ObjectExtractionResult> extractedObjects = new ArrayList<ObjectExtractionResult>();
+	private MongoClient mongoClient;
 	private String apkName;
 	
 	public LeakHunter(String apkName, Hashtable<String, ObjectExtractionQuery> extractionPoints){ 
@@ -75,23 +75,25 @@ public class LeakHunter {
 		}
 		return null;
 	}
+	
 	private void closeDatabase(){
 		MongoClient client = getDatabaseClient();
 		if (client != null){
 			client.close();
 		}
 	}
-	public int process(){
+	
+	public int process() {
 		int numProccessed = 0;
 		try {
 			Scene.v().loadNecessaryClasses();
 			locateMethodCalls();
-			for (ObjectExtractionResult r : extractedObjects){
+			for (ObjectExtractionResult r : extractedObjects) {
 				numProccessed += extractFieldsFromClassandStore(r);
 			}
-		} catch (RuntimeException e){
-		logger.error(e.getMessage());
-	} finally {
+		} catch (RuntimeException e) {
+			logger.error(e.getMessage());
+		} finally {
 			closeDatabase();
 			Scene.v().releaseActiveHierarchy();
 			Scene.v().releaseCallGraph();
@@ -105,13 +107,6 @@ public class LeakHunter {
 
 	private int extractFieldsFromClassandStore(ObjectExtractionResult r){
 		int numProccessed = 0;
-
-		DB db = getDatabaseClient().getDB(MONGO_DB);
-		DBCollection dbCollection = db.getCollection(MONGO_COLL);
-		JacksonDBCollection<LeakedData, String> coll = JacksonDBCollection.wrap(dbCollection, LeakedData.class,
-		        String.class);
-		
-		
 		String clazz = r.getClassName();
 		logger.info("\tClass " + clazz);
 		SootClass sootclass = Scene.v().getSootClass(clazz);//loadClassAndSupport(clazz);

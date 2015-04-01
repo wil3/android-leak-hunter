@@ -66,22 +66,9 @@ public class BatchLeakHunter {
 		this.signaturePath = signaturePath;
 		setup();
 	}
-	
-	private List<String> getAPKSources(){
-		List<String> f = new ArrayList<String>();
-		File[] files = apkSourceDir.listFiles();
-		for (int i=0;i<files.length;i++){
-			f.add(files[i].getAbsolutePath());
-		}
-		return f;
-	}
+
 	private void setup(){
-		//List<String> processDirs = new ArrayList<String>();
-		//processDirs.add(apk);
-		//Options.v().set_process_dir(getAPKSources());
-	
 		this.signatures = loadSignatures(signaturePath);
-		
 	}
 	
 	public void run(){
@@ -110,7 +97,6 @@ public class BatchLeakHunter {
 					FileUtils.moveFileToDirectory(files[i], foundDir, false);
 				} else {
 					FileUtils.moveFileToDirectory(files[i], lostDir, false);
-
 				}
 			} catch (IOException e) {
 				logger.error(e.getMessage());
@@ -146,6 +132,7 @@ public class BatchLeakHunter {
  * @param args
  */
 	public static void main(String[] args) {
+		//TODO need error checking, messy
 		String apkSourceDirPath = args[0];
 		File apkSourceDir = new File(apkSourceDirPath);
 		
@@ -156,11 +143,7 @@ public class BatchLeakHunter {
 		String androidJars = args[3];
 		String signaturePath = args[4];
 
-		
 		BatchLeakHunter instra = new BatchLeakHunter(apkSourceDir, foundDir, lostDir, androidJars, signaturePath);
-		//instra.run(args);
-		//instra.locateMethodCalls();
-		//instra.getClasses();
 		instra.run();
 	}
 }
